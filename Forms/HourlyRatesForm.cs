@@ -21,12 +21,14 @@ public partial class HourlyRatesForm : Form
         if (snooker != null)
         {
             _snookerTypeId = snooker.TableTypeId;
-            numSnooker.Value = snooker.HourlyRate;
+            numSnookerFirst.Value = snooker.FirstHourRate;
+            numSnookerAdditional.Value = snooker.AdditionalHourRate;
         }
         if (black != null)
         {
             _blackTypeId = black.TableTypeId;
-            numBlack.Value = black.HourlyRate;
+            numBlackFirst.Value = black.FirstHourRate;
+            numBlackAdditional.Value = black.AdditionalHourRate;
         }
     }
 
@@ -34,8 +36,8 @@ public partial class HourlyRatesForm : Form
     {
         try
         {
-            BilliardRepository.UpdateHourlyRate(_snookerTypeId, numSnooker.Value);
-            BilliardRepository.UpdateHourlyRate(_blackTypeId, numBlack.Value);
+            BilliardRepository.UpdatePricingRates(_snookerTypeId, numSnookerFirst.Value, numSnookerAdditional.Value);
+            BilliardRepository.UpdatePricingRates(_blackTypeId, numBlackFirst.Value, numBlackAdditional.Value);
             MessageBox.Show("تم حفظ الأسعار.", "نجاح", MessageBoxButtons.OK, MessageBoxIcon.Information);
             DialogResult = DialogResult.OK;
             Close();

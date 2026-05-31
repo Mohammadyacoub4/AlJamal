@@ -10,6 +10,8 @@ public sealed class InvoiceDraft
     public int PlayMinutes { get; init; }
     public decimal PlayHours { get; init; }
     public decimal HourlyRate { get; init; }
+    public decimal FirstHourRate { get; init; }
+    public decimal AdditionalHourRate { get; init; }
     public decimal PlayAmount { get; init; }
     public decimal OrdersAmount { get; init; }
     public decimal TotalAmount => PlayAmount + OrdersAmount;

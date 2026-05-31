@@ -8,6 +8,8 @@ public sealed class PlayerSessionInfo
     public DateTime StartTime { get; init; }
     public DateTime? EndTime { get; init; }
     public decimal HourlyRate { get; init; }
+    public decimal FirstHourRate { get; init; }
+    public decimal AdditionalHourRate { get; init; }
     public bool IsActive { get; init; }
     public bool IsInvoiced { get; init; }
     public string TableDisplayName { get; init; } = "";

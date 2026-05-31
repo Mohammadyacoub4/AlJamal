@@ -9,6 +9,7 @@ internal static class BilliardRepository
     {
         const string sql = """
             SELECT t.TableId, t.TableTypeId, t.TableNumber, t.DisplayName, tt.TypeName, tt.HourlyRate,
+                   tt.FirstHourRate, tt.AdditionalHourRate,
                    (SELECT COUNT(*) FROM PlayerSessions ps
                     WHERE ps.TableId = t.TableId AND ps.IsActive = 1) AS ActivePlayers
             FROM BilliardTables t
@@ -31,7 +32,9 @@ internal static class BilliardRepository
                 DisplayName = r.GetString(3),
                 TypeName = r.GetString(4),
                 HourlyRate = r.GetDecimal(5),
-                ActivePlayers = r.GetInt32(6)
+                FirstHourRate = r.GetDecimal(6),
+                AdditionalHourRate = r.GetDecimal(7),
+                ActivePlayers = r.GetInt32(8)
             });
         }
         return list;
@@ -46,9 +49,11 @@ internal static class BilliardRepository
     {
         const string sql = """
             SELECT ps.PlayerSessionId, ps.TableId, ps.PlayerName, ps.StartTime, ps.EndTime,
-                   ps.HourlyRate, ps.IsActive, ps.IsInvoiced, bt.DisplayName
+                   ps.HourlyRate, ps.IsActive, ps.IsInvoiced, bt.DisplayName,
+                   tt.FirstHourRate, tt.AdditionalHourRate
             FROM PlayerSessions ps
             INNER JOIN BilliardTables bt ON ps.TableId = bt.TableId
+            INNER JOIN TableTypes tt ON bt.TableTypeId = tt.TableTypeId
             WHERE ps.TableId = @TableId AND ps.IsActive = 1
             ORDER BY ps.StartTime
             """;
@@ -60,9 +65,11 @@ internal static class BilliardRepository
     {
         const string sql = """
             SELECT ps.PlayerSessionId, ps.TableId, ps.PlayerName, ps.StartTime, ps.EndTime,
-                   ps.HourlyRate, ps.IsActive, ps.IsInvoiced, bt.DisplayName
+                   ps.HourlyRate, ps.IsActive, ps.IsInvoiced, bt.DisplayName,
+                   tt.FirstHourRate, tt.AdditionalHourRate
             FROM PlayerSessions ps
             INNER JOIN BilliardTables bt ON ps.TableId = bt.TableId
+            INNER JOIN TableTypes tt ON bt.TableTypeId = tt.TableTypeId
             WHERE ps.PlayerSessionId = @Id
             """;
 
@@ -194,7 +201,7 @@ internal static class BilliardRepository
         if (elapsed < TimeSpan.Zero)
             elapsed = TimeSpan.Zero;
 
-        var (playMinutes, playHours, playAmount) = CalculatePlayCharge(elapsed, session.HourlyRate);
+        var (playMinutes, playHours, playAmount) = CalculatePlayCharge(elapsed, session.FirstHourRate, session.AdditionalHourRate);
         var orders = GetOrderItems(playerSessionId);
         var ordersAmount = Math.Round(orders.Sum(o => o.LineTotal), 2);
 
@@ -233,6 +240,8 @@ internal static class BilliardRepository
             PlayMinutes = playMinutes,
             PlayHours = playHours,
             HourlyRate = session.HourlyRate,
+            FirstHourRate = session.FirstHourRate,
+            AdditionalHourRate = session.AdditionalHourRate,
             PlayAmount = playAmount,
             OrdersAmount = ordersAmount,
             Lines = lines
@@ -422,17 +431,21 @@ internal static class BilliardRepository
                 HourlyRate = r.GetDecimal(5),
                 IsActive = r.GetBoolean(6),
                 IsInvoiced = r.GetBoolean(7),
-                TableDisplayName = r.GetString(8)
+                TableDisplayName = r.GetString(8),
+                FirstHourRate = r.GetDecimal(9),
+                AdditionalHourRate = r.GetDecimal(10)
             });
         }
         return list;
     }
 
     /// <summary>
-    /// مبلغ الوقت = (الساعات الفعلية بكسورها) × سعر الساعة — متطابق مع سطر الفاتورة.
+    /// حساب رسوم اللعب مع نموذج التسعير الديناميكي:
+    /// الساعة الأولى: FirstHourRate
+    /// الساعات الإضافية: AdditionalHourRate
     /// </summary>
     public static (int PlayMinutes, decimal PlayHours, decimal PlayAmount) CalculatePlayCharge(
-        TimeSpan elapsed, decimal hourlyRate)
+        TimeSpan elapsed, decimal firstHourRate, decimal additionalHourRate)
     {
         if (elapsed < TimeSpan.Zero)
             elapsed = TimeSpan.Zero;
@@ -442,7 +455,19 @@ internal static class BilliardRepository
         if (playHours <= 0)
             playHours = playMinutes / 60m;
 
-        var playAmount = Math.Round(playHours * hourlyRate, 2);
+        decimal playAmount;
+        if (playHours <= 1)
+        {
+            playAmount = Math.Round(playHours * firstHourRate, 2);
+        }
+        else
+        {
+            var firstHourCharge = firstHourRate;
+            var additionalHours = playHours - 1;
+            var additionalCharge = Math.Round(additionalHours * additionalHourRate, 2);
+            playAmount = Math.Round(firstHourCharge + additionalCharge, 2);
+        }
+
         return (playMinutes, playHours, playAmount);
     }
 
@@ -475,7 +500,7 @@ internal static class BilliardRepository
     public static List<TableTypeInfo> GetTableTypes()
     {
         const string sql = """
-            SELECT TableTypeId, TypeName, HourlyRate FROM TableTypes ORDER BY TableTypeId
+            SELECT TableTypeId, TypeName, HourlyRate, FirstHourRate, AdditionalHourRate FROM TableTypes ORDER BY TableTypeId
             """;
 
         var list = new List<TableTypeInfo>();
@@ -490,7 +515,9 @@ internal static class BilliardRepository
                 TableTypeId = r.GetInt32(0),
                 TypeName = typeName,
                 DisplayNameAr = typeName.Equals("Snooker", StringComparison.OrdinalIgnoreCase) ? "سنوكر" : "بلاك",
-                HourlyRate = r.GetDecimal(2)
+                HourlyRate = r.GetDecimal(2),
+                FirstHourRate = r.GetDecimal(3),
+                AdditionalHourRate = r.GetDecimal(4)
             });
         }
         return list;
@@ -505,6 +532,25 @@ internal static class BilliardRepository
         using var cmd = new SqlCommand(
             "UPDATE TableTypes SET HourlyRate = @Rate WHERE TableTypeId = @Id", con);
         cmd.Parameters.AddWithValue("@Rate", hourlyRate);
+        cmd.Parameters.AddWithValue("@Id", tableTypeId);
+        if (cmd.ExecuteNonQuery() == 0)
+            throw new InvalidOperationException("نوع الطاولة غير موجود.");
+    }
+
+    public static void UpdatePricingRates(int tableTypeId, decimal firstHourRate, decimal additionalHourRate)
+    {
+        if (firstHourRate <= 0 || additionalHourRate <= 0)
+            throw new ArgumentException("الأسعار يجب أن تكون أكبر من صفر.");
+
+        using var con = DatabaseHelper.OpenConnection();
+        using var cmd = new SqlCommand(
+            """
+            UPDATE TableTypes 
+            SET FirstHourRate = @FirstHour, AdditionalHourRate = @AddHour, HourlyRate = @FirstHour
+            WHERE TableTypeId = @Id
+            """, con);
+        cmd.Parameters.AddWithValue("@FirstHour", firstHourRate);
+        cmd.Parameters.AddWithValue("@AddHour", additionalHourRate);
         cmd.Parameters.AddWithValue("@Id", tableTypeId);
         if (cmd.ExecuteNonQuery() == 0)
             throw new InvalidOperationException("نوع الطاولة غير موجود.");
@@ -628,7 +674,7 @@ internal static class BilliardRepository
             if (elapsed < TimeSpan.Zero)
                 elapsed = TimeSpan.Zero;
 
-            var (playMinutes, playHours, playAmount) = CalculatePlayCharge(elapsed, player.HourlyRate);
+            var (playMinutes, playHours, playAmount) = CalculatePlayCharge(elapsed, player.FirstHourRate, player.AdditionalHourRate);
             var orders = GetOrderItems(player.PlayerSessionId);
             var ordersAmount = Math.Round(orders.Sum(o => o.LineTotal), 2);
             var playerTotal = playAmount + ordersAmount;
@@ -642,6 +688,8 @@ internal static class BilliardRepository
                 PlayMinutes = playMinutes,
                 PlayHours = playHours,
                 HourlyRate = player.HourlyRate,
+                FirstHourRate = player.FirstHourRate,
+                AdditionalHourRate = player.AdditionalHourRate,
                 PlayAmount = playAmount,
                 Orders = orders,
                 OrdersAmount = ordersAmount

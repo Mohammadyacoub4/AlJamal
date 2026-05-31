@@ -575,4 +575,170 @@ internal static class BilliardRepository
         if (cmd.ExecuteNonQuery() == 0)
             throw new InvalidOperationException("المنتج غير موجود.");
     }
+
+    public static void DeleteProduct(int productId)
+    {
+        using var con = DatabaseHelper.OpenConnection();
+        using var cmd = new SqlCommand(
+            "DELETE FROM Products WHERE ProductId = @Id", con);
+        cmd.Parameters.AddWithValue("@Id", productId);
+        if (cmd.ExecuteNonQuery() == 0)
+            throw new InvalidOperationException("المنتج غير موجود.");
+    }
+
+    public static void ClearAllProducts()
+    {
+        using var con = DatabaseHelper.OpenConnection();
+        using var tx = con.BeginTransaction();
+
+        try
+        {
+            using (var cmd = new SqlCommand("DELETE FROM OrderItems", con, tx))
+                cmd.ExecuteNonQuery();
+
+            using (var cmd = new SqlCommand("DELETE FROM Products", con, tx))
+                cmd.ExecuteNonQuery();
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw new InvalidOperationException("تعذر تفريغ قائمة المنتجات. تأكد من عدم وجود فواتير معلقة.");
+        }
+    }
+
+    public static TableInvoiceDraft BuildTableInvoiceDraft(int tableId)
+    {
+        var table = GetTable(tableId) ?? throw new InvalidOperationException("الطاولة غير موجودة.");
+        var activePlayers = GetActivePlayers(tableId);
+
+        if (activePlayers.Count == 0)
+            throw new InvalidOperationException("لا توجد لاعبين نشطين على هذه الطاولة.");
+
+        var endTime = DateTime.Now;
+        var tableStartTime = activePlayers.Min(p => p.StartTime);
+        var playerDetails = new List<PlayerInvoiceDetail>();
+        decimal totalAmount = 0;
+
+        foreach (var player in activePlayers)
+        {
+            var playerEndTime = endTime;
+            var elapsed = playerEndTime - player.StartTime;
+            if (elapsed < TimeSpan.Zero)
+                elapsed = TimeSpan.Zero;
+
+            var (playMinutes, playHours, playAmount) = CalculatePlayCharge(elapsed, player.HourlyRate);
+            var orders = GetOrderItems(player.PlayerSessionId);
+            var ordersAmount = Math.Round(orders.Sum(o => o.LineTotal), 2);
+            var playerTotal = playAmount + ordersAmount;
+
+            playerDetails.Add(new PlayerInvoiceDetail
+            {
+                PlayerSessionId = player.PlayerSessionId,
+                PlayerLabel = player.DisplayLabel,
+                PlayerStartTime = player.StartTime,
+                PlayerEndTime = playerEndTime,
+                PlayMinutes = playMinutes,
+                PlayHours = playHours,
+                HourlyRate = player.HourlyRate,
+                PlayAmount = playAmount,
+                Orders = orders,
+                OrdersAmount = ordersAmount
+            });
+
+            totalAmount += playerTotal;
+        }
+
+        return new TableInvoiceDraft
+        {
+            TableId = tableId,
+            TableName = table.DisplayName,
+            StartTime = tableStartTime,
+            EndTime = endTime,
+            TotalAmount = Math.Round(totalAmount, 2),
+            Players = playerDetails
+        };
+    }
+
+    public static void SaveTableInvoice(TableInvoiceDraft draft)
+    {
+        using var con = DatabaseHelper.OpenConnection();
+        using var tx = con.BeginTransaction();
+
+        try
+        {
+            foreach (var playerDetail in draft.Players)
+            {
+                using (var endCmd = new SqlCommand(
+                    """
+                    UPDATE PlayerSessions
+                    SET EndTime = @EndTime, IsActive = 0, IsInvoiced = 1
+                    WHERE PlayerSessionId = @Id AND IsInvoiced = 0
+                    """, con, tx))
+                {
+                    endCmd.Parameters.AddWithValue("@EndTime", draft.EndTime);
+                    endCmd.Parameters.AddWithValue("@Id", playerDetail.PlayerSessionId);
+                    if (endCmd.ExecuteNonQuery() == 0)
+                        throw new InvalidOperationException($"تعذر إغلاق جلسة {playerDetail.PlayerLabel}.");
+                }
+
+                using (var invCmd = new SqlCommand(
+                    """
+                    INSERT INTO Invoices (PlayerSessionId, PlayMinutes, PlayAmount, OrdersAmount, TotalAmount, CreatedAt)
+                    OUTPUT INSERTED.InvoiceId
+                    VALUES (@SessionId, @PlayMin, @PlayAmt, @OrdAmt, @Total, SYSDATETIME())
+                    """, con, tx))
+                {
+                    invCmd.Parameters.AddWithValue("@SessionId", playerDetail.PlayerSessionId);
+                    invCmd.Parameters.AddWithValue("@PlayMin", playerDetail.PlayMinutes);
+                    invCmd.Parameters.AddWithValue("@PlayAmt", playerDetail.PlayAmount);
+                    invCmd.Parameters.AddWithValue("@OrdAmt", playerDetail.OrdersAmount);
+                    invCmd.Parameters.AddWithValue("@Total", playerDetail.PlayerTotal);
+                    var invoiceId = (int)invCmd.ExecuteScalar()!;
+
+                    using (var timeCmd = new SqlCommand(
+                        """
+                        INSERT INTO InvoiceLines (InvoiceId, LineType, Description, Quantity, UnitPrice, LineTotal)
+                        VALUES (@InvoiceId, @LineType, @Desc, @Qty, @UnitPrice, @LineTotal)
+                        """, con, tx))
+                    {
+                        timeCmd.Parameters.AddWithValue("@InvoiceId", invoiceId);
+                        timeCmd.Parameters.AddWithValue("@LineType", "Time");
+                        timeCmd.Parameters.AddWithValue("@Desc", $"وقت اللعب ({playerDetail.PlayMinutes} دقيقة)");
+                        timeCmd.Parameters.AddWithValue("@Qty", playerDetail.PlayHours);
+                        timeCmd.Parameters.AddWithValue("@UnitPrice", playerDetail.HourlyRate);
+                        timeCmd.Parameters.AddWithValue("@LineTotal", playerDetail.PlayAmount);
+                        timeCmd.ExecuteNonQuery();
+                    }
+
+                    foreach (var g in playerDetail.Orders.GroupBy(o => new { o.ProductId, o.ProductName, o.UnitPrice }))
+                    {
+                        var qty = g.Sum(x => x.Quantity);
+                        using (var prodCmd = new SqlCommand(
+                            """
+                            INSERT INTO InvoiceLines (InvoiceId, LineType, Description, Quantity, UnitPrice, LineTotal)
+                            VALUES (@InvoiceId, @LineType, @Desc, @Qty, @UnitPrice, @LineTotal)
+                            """, con, tx))
+                        {
+                            prodCmd.Parameters.AddWithValue("@InvoiceId", invoiceId);
+                            prodCmd.Parameters.AddWithValue("@LineType", "Product");
+                            prodCmd.Parameters.AddWithValue("@Desc", g.Key.ProductName);
+                            prodCmd.Parameters.AddWithValue("@Qty", qty);
+                            prodCmd.Parameters.AddWithValue("@UnitPrice", g.Key.UnitPrice);
+                            prodCmd.Parameters.AddWithValue("@LineTotal", qty * g.Key.UnitPrice);
+                            prodCmd.ExecuteNonQuery();
+                        }
+                    }
+                }
+            }
+
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
+    }
 }

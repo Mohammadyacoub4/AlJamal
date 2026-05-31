@@ -20,15 +20,25 @@ internal static class InvoicePrintHelper
             "──────────────────────────"
         };
 
-        foreach (var line in draft.Lines)
+        var timeLines = draft.Lines.Where(l => l.LineType == "Time").ToList();
+        var productLines = draft.Lines.Where(l => l.LineType == "Product").ToList();
+
+        if (timeLines.Count > 0)
         {
-            lines.Add(line.Description);
-            if (line.LineType == "Time")
+            lines.Add("─── وقت اللعب ───");
+            foreach (var line in timeLines)
             {
+                lines.Add(line.Description);
                 lines.Add($"  {line.Quantity:N2} ساعة × {line.UnitPrice:N2} د.أ/ساعة = {line.LineTotal:N2} د.أ");
             }
-            else
+        }
+
+        if (productLines.Count > 0)
+        {
+            lines.Add("─── الطلبات ───");
+            foreach (var line in productLines)
             {
+                lines.Add(line.Description);
                 lines.Add($"  {line.Quantity:N0} × {line.UnitPrice:N2} د.أ = {line.LineTotal:N2} د.أ");
             }
         }

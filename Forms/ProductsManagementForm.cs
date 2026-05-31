@@ -24,15 +24,13 @@ public partial class ProductsManagementForm : Form
         dgvProducts.AutoGenerateColumns = false;
         dgvProducts.Columns.Clear();
         dgvProducts.Columns.Add(new DataGridViewTextBoxColumn
-            { Name = "Id", DataPropertyName = "ProductId", Visible = false });
+        { Name = "Id", DataPropertyName = "ProductId", Visible = false });
         dgvProducts.Columns.Add(new DataGridViewTextBoxColumn
-            { HeaderText = "المنتج", DataPropertyName = "ProductName", FillWeight = 120 });
+        { HeaderText = "المنتج", DataPropertyName = "ProductName", FillWeight = 150 });
         dgvProducts.Columns.Add(new DataGridViewTextBoxColumn
-            { HeaderText = "التصنيف", DataPropertyName = "Category", FillWeight = 80 });
+        { HeaderText = "التصنيف", DataPropertyName = "Category", FillWeight = 100 });
         dgvProducts.Columns.Add(new DataGridViewTextBoxColumn
-            { HeaderText = "السعر", DataPropertyName = "PriceDisplay", FillWeight = 60 });
-        dgvProducts.Columns.Add(new DataGridViewTextBoxColumn
-            { HeaderText = "الحالة", DataPropertyName = "StatusDisplay", FillWeight = 50 });
+        { HeaderText = "السعر", DataPropertyName = "PriceDisplay", FillWeight = 80 });
     }
 
     private void LoadProducts()
@@ -43,8 +41,7 @@ public partial class ProductsManagementForm : Form
             p.ProductId,
             p.ProductName,
             Category = p.Category ?? "—",
-            PriceDisplay = $"{p.UnitPrice:N2} د.أ",
-            StatusDisplay = p.IsActive ? "نشط" : "موقوف"
+            PriceDisplay = $"{p.UnitPrice:N2} د.أ"
         }).ToList();
         ClearEdit();
     }
@@ -63,7 +60,6 @@ public partial class ProductsManagementForm : Form
         txtName.Text = p.ProductName;
         txtCategory.Text = p.Category ?? "";
         numPrice.Value = Math.Min(numPrice.Maximum, Math.Max(numPrice.Minimum, p.UnitPrice));
-        chkActive.Checked = p.IsActive;
         grpAdd.Text = "تعديل منتج";
     }
 
@@ -73,7 +69,6 @@ public partial class ProductsManagementForm : Form
         txtName.Clear();
         txtCategory.Clear();
         numPrice.Value = 1;
-        chkActive.Checked = true;
         grpAdd.Text = "منتج جديد";
     }
 
@@ -107,7 +102,7 @@ public partial class ProductsManagementForm : Form
                 txtName.Text,
                 txtCategory.Text,
                 numPrice.Value,
-                chkActive.Checked);
+                isActive: true);
             LoadProducts();
             MessageBox.Show("تم حفظ التعديل.", "نجاح", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
@@ -115,5 +110,68 @@ public partial class ProductsManagementForm : Form
         {
             MessageBox.Show(ex.Message, "خطأ", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    private void BtnDelete_Click(object? sender, EventArgs e)
+    {
+        if (!_editingProductId.HasValue)
+        {
+            MessageBox.Show("اختر منتجاً من القائمة للحذف.", "تنبيه",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            $"هل تريد حقاً حذف المنتج '{txtName.Text}'؟ هذا لا يمكن التراجع عنه.",
+            "تأكيد الحذف",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+
+        if (result != DialogResult.Yes)
+            return;
+
+        try
+        {
+            BilliardRepository.DeleteProduct(_editingProductId.Value);
+            LoadProducts();
+            MessageBox.Show("تم حذف المنتج بنجاح.", "نجاح", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"لم يتمكن من حذف المنتج: {ex.Message}", "خطأ", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private void BtnClearAll_Click(object? sender, EventArgs e)
+    {
+        var result = MessageBox.Show(
+            "هل تريد حذف جميع المنتجات؟ هذا لا يمكن التراجع عنه!",
+            "تفريغ كل المنتجات",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+
+        if (result != DialogResult.Yes)
+            return;
+
+        try
+        {
+            BilliardRepository.ClearAllProducts();
+            LoadProducts();
+            MessageBox.Show("تم تفريغ قائمة المنتجات بنجاح. يمكنك الآن إضافة منتجات جديدة.", "نجاح",
+                MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"لم يتمكن من تفريغ المنتجات: {ex.Message}", "خطأ", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+    private void btnClose_Click(object sender, EventArgs e)
+    {
+        Close();
+    }
+
+    private void lblPrice_Click(object sender, EventArgs e)
+    {
+
     }
 }

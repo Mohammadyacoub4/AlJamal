@@ -37,7 +37,12 @@ partial class TableDetailsForm
         // 
         // lstPlayers
         // 
-        lstPlayers.Columns.AddRange(new[] { colName, colStart, colElapsed });
+        lstPlayers.Columns.AddRange(new ColumnHeader[]
+{
+    colName,
+    colStart,
+    colElapsed
+});
         lstPlayers.FullRowSelect = true;
         lstPlayers.GridLines = true;
         lstPlayers.Location = new Point(12, 55);

@@ -4,6 +4,9 @@
     <_LastSelectedProfileId>D:\AlJamal\AlJamal\Properties\PublishProfiles\FolderProfile.pubxml</_LastSelectedProfileId>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Update="Forms\HourlyRatesForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Update="Forms\InvoiceArchiveForm.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -14,6 +17,9 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Update="Forms\PlayerOrdersForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Update="Forms\ProductsManagementForm.cs">
       <SubType>Form</SubType>
     </Compile>
     <Compile Update="Forms\TableDetailsForm.cs">

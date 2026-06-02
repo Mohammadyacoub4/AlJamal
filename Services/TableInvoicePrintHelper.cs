@@ -20,15 +20,20 @@ internal static class TableInvoicePrintHelper
         lines.Add($"من: {draft.StartTime:HH:mm}  إلى: {draft.EndTime:HH:mm}");
         lines.Add("══════════════════════════════════════");
 
+        // حساب وقت اللعب للطاولة ككل (يُطبع مرة واحدة)
+        lines.Add("⏰ أجرة وقت الطاولة:");
+        lines.Add($"   مدة اللعب: {draft.PlayHours:N2} ساعة");
+        lines.Add($"   سعر الساعة: {draft.HourlyRate:N2} د.أ/ساعة");
+        lines.Add($"   حساب اللعب: {draft.PlayAmount:N2} د.أ");
+        lines.Add("══════════════════════════════════════");
+
+        // تفاصيل الزبائن والطلبات
+        lines.Add("👤 تفاصيل الزبائن والطلبات:");
         foreach (var player in draft.Players)
         {
             lines.Add($"");
             lines.Add($"👤 الزبون: {player.PlayerLabel}");
-            lines.Add($"   الوقت: {player.PlayerStartTime:HH:mm} - {player.PlayerEndTime:HH:mm}");
-            lines.Add("──────────────────────────────────────");
-
-            lines.Add("   وقت اللعب:");
-            lines.Add($"      {player.PlayHours:N2} ساعة × {player.HourlyRate:N2} د.أ/ساعة = {player.PlayAmount:N2} د.أ");
+            lines.Add($"   وقت الدخول: {player.PlayerStartTime:HH:mm}");
 
             if (player.Orders.Count > 0)
             {
@@ -39,9 +44,12 @@ internal static class TableInvoicePrintHelper
                     lines.Add($"      {g.Key.ProductName}");
                     lines.Add($"      {qty} × {g.Key.UnitPrice:N2} د.أ = {qty * g.Key.UnitPrice:N2} د.أ");
                 }
+                lines.Add($"   مجموع الطلبات للزبون: {player.OrdersAmount:N2} د.أ");
             }
-
-            lines.Add($"   المجموع للزبون: {player.PlayerTotal:N2} د.أ");
+            else
+            {
+                lines.Add("   الطلبات: لا يوجد طلبات");
+            }
             lines.Add("──────────────────────────────────────");
         }
 

@@ -664,20 +664,41 @@ internal static class BilliardRepository
 
         var endTime = DateTime.Now;
         var tableStartTime = activePlayers.Min(p => p.StartTime);
+        
+        // حساب وقت اللعب للطاولة ككل
+        var tableDuration = endTime - tableStartTime;
+        if (tableDuration < TimeSpan.Zero)
+            tableDuration = TimeSpan.Zero;
+
+        var firstPlayer = activePlayers.First();
+        var (tablePlayMinutes, tablePlayHours, tablePlayAmount) = CalculatePlayCharge(
+            tableDuration, firstPlayer.FirstHourRate, firstPlayer.AdditionalHourRate);
+
+        // توزيع قيمة اللعب الكلية على اللاعبين بالتساوي لتسجيلها في قاعدة البيانات بشكل سليم
+        decimal playAmountPerPlayer = Math.Round(tablePlayAmount / activePlayers.Count, 2);
+        decimal playAmountSum = 0;
+
         var playerDetails = new List<PlayerInvoiceDetail>();
         decimal totalAmount = 0;
 
-        foreach (var player in activePlayers)
+        for (int i = 0; i < activePlayers.Count; i++)
         {
+            var player = activePlayers[i];
             var playerEndTime = endTime;
             var elapsed = playerEndTime - player.StartTime;
             if (elapsed < TimeSpan.Zero)
                 elapsed = TimeSpan.Zero;
 
-            var (playMinutes, playHours, playAmount) = CalculatePlayCharge(elapsed, player.FirstHourRate, player.AdditionalHourRate);
+            // تحديد حصة اللاعب الحالي
+            decimal playAmountShare = (i == activePlayers.Count - 1)
+                ? (tablePlayAmount - playAmountSum)
+                : playAmountPerPlayer;
+            playAmountSum += playAmountShare;
+
+            var (playMinutes, playHours, _) = CalculatePlayCharge(elapsed, player.FirstHourRate, player.AdditionalHourRate);
             var orders = GetOrderItems(player.PlayerSessionId);
             var ordersAmount = Math.Round(orders.Sum(o => o.LineTotal), 2);
-            var playerTotal = playAmount + ordersAmount;
+            var playerTotal = playAmountShare + ordersAmount;
 
             playerDetails.Add(new PlayerInvoiceDetail
             {
@@ -690,7 +711,7 @@ internal static class BilliardRepository
                 HourlyRate = player.HourlyRate,
                 FirstHourRate = player.FirstHourRate,
                 AdditionalHourRate = player.AdditionalHourRate,
-                PlayAmount = playAmount,
+                PlayAmount = playAmountShare,
                 Orders = orders,
                 OrdersAmount = ordersAmount
             });
@@ -704,6 +725,12 @@ internal static class BilliardRepository
             TableName = table.DisplayName,
             StartTime = tableStartTime,
             EndTime = endTime,
+            PlayMinutes = tablePlayMinutes,
+            PlayHours = tablePlayHours,
+            HourlyRate = firstPlayer.HourlyRate,
+            FirstHourRate = firstPlayer.FirstHourRate,
+            AdditionalHourRate = firstPlayer.AdditionalHourRate,
+            PlayAmount = tablePlayAmount,
             TotalAmount = Math.Round(totalAmount, 2),
             Players = playerDetails
         };

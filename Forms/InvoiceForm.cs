@@ -1,3 +1,4 @@
+using System.Drawing;
 using System.Drawing.Printing;
 using AlJamal.Database;
 using AlJamal.Models;
@@ -27,13 +28,13 @@ public partial class InvoiceForm : Form
         }
     }
 
-    private void InvoiceForm_Load(object? sender, EventArgs e)
+    private void InvoiceForm_Load(object sender, EventArgs e)
     {
         _receiptText = InvoicePrintHelper.FormatReceipt(_draft, _invoiceId);
         txtReceipt.Text = _receiptText;
     }
 
-    private void BtnPrint_Click(object? sender, EventArgs e)
+    private void BtnPrint_Click(object sender, EventArgs e)
     {
         if (_isNew && !_invoiceId.HasValue)
         {
@@ -43,11 +44,12 @@ public partial class InvoiceForm : Form
         }
 
         PrintReceipt();
+
         if (_invoiceId.HasValue)
             BilliardRepository.MarkInvoicePrinted(_invoiceId.Value);
     }
 
-    private void BtnSave_Click(object? sender, EventArgs e)
+    private void BtnSave_Click(object sender, EventArgs e)
     {
         if (!_isNew)
             return;
@@ -55,6 +57,7 @@ public partial class InvoiceForm : Form
         try
         {
             _invoiceId = BilliardRepository.SaveInvoice(_draft);
+
             _receiptText = InvoicePrintHelper.FormatReceipt(_draft, _invoiceId);
             txtReceipt.Text = _receiptText;
 
@@ -79,28 +82,42 @@ public partial class InvoiceForm : Form
         }
     }
 
-    private void BtnCancel_Click(object? sender, EventArgs e)
+    private void BtnCancel_Click(object sender, EventArgs e)
     {
         DialogResult = _isNew ? DialogResult.Cancel : DialogResult.OK;
         Close();
     }
 
+    // =========================
+    // 🖨️ PRINT (تلقائي على الطابعة الافتراضية)
+    // =========================
     private void PrintReceipt()
     {
         using var doc = new PrintDocument();
-        doc.DocumentName = $"فاتورة {AppSettings.ShopName}";
-        var lines = _receiptText.Split(Environment.NewLine);
-        var lineIndex = 0;
 
-        doc.PrintPage += (_, ev) =>
+        doc.DocumentName = "Invoice";
+
+        // ✅ يختار الطابعة الافتراضية تلقائياً (المشبّكة غالباً)
+        doc.PrinterSettings = new PrinterSettings();
+
+        // 🔥 إعداد ورق حراري (80mm)
+        doc.DefaultPageSettings.Margins = new Margins(5, 5, 5, 5);
+        doc.DefaultPageSettings.PaperSize = new PaperSize("Receipt", 315, 1000);
+
+        var lines = _receiptText.Split(Environment.NewLine);
+        int lineIndex = 0;
+
+        doc.PrintPage += (sender, ev) =>
         {
-            var font = new Font("Arial", 10);
+            Font font = new Font("Consolas", 9);
             float y = ev.MarginBounds.Top;
-            var lineHeight = font.GetHeight(ev.Graphics!) + 2;
+            float lineHeight = font.GetHeight(ev.Graphics) + 2;
+
+            float x = ev.MarginBounds.Left;
 
             while (lineIndex < lines.Length && y + lineHeight < ev.MarginBounds.Bottom)
             {
-                ev.Graphics!.DrawString(lines[lineIndex], font, Brushes.Black, ev.MarginBounds.Left, y);
+                ev.Graphics.DrawString(lines[lineIndex], font, Brushes.Black, x, y);
                 y += lineHeight;
                 lineIndex++;
             }
@@ -108,12 +125,7 @@ public partial class InvoiceForm : Form
             ev.HasMorePages = lineIndex < lines.Length;
         };
 
-        using var preview = new PrintPreviewDialog
-        {
-            Document = doc,
-            Width = 500,
-            Height = 700
-        };
-        preview.ShowDialog(this);
+        // 🚀 طباعة مباشرة
+        doc.Print();
     }
 }

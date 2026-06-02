@@ -28,23 +28,25 @@ BEGIN
         FirstHourRate      DECIMAL(10,2) NULL,
         AdditionalHourRate DECIMAL(10,2) NULL
     );
-    INSERT INTO dbo.TableTypes (TableTypeId, TypeName, HourlyRate, FirstHourRate, AdditionalHourRate) VALUES
-        (1, N'Snooker', 5.00, 5.00, 5.00),
-        (2, N'Black',   4.00, 4.00, 4.00);
 END
-ELSE
+GO
+
+IF COL_LENGTH('dbo.TableTypes', 'FirstHourRate') IS NULL
 BEGIN
-    IF COL_LENGTH('dbo.TableTypes', 'FirstHourRate') IS NULL
-        ALTER TABLE dbo.TableTypes ADD FirstHourRate DECIMAL(10,2) NULL;
-    
-    IF COL_LENGTH('dbo.TableTypes', 'AdditionalHourRate') IS NULL
-        ALTER TABLE dbo.TableTypes ADD AdditionalHourRate DECIMAL(10,2) NULL;
-    
-    UPDATE dbo.TableTypes 
-    SET FirstHourRate = ISNULL(FirstHourRate, HourlyRate),
-        AdditionalHourRate = ISNULL(AdditionalHourRate, HourlyRate)
-    WHERE FirstHourRate IS NULL OR AdditionalHourRate IS NULL;
+    ALTER TABLE dbo.TableTypes ADD FirstHourRate DECIMAL(10,2) NULL;
 END
+GO
+
+IF COL_LENGTH('dbo.TableTypes', 'AdditionalHourRate') IS NULL
+BEGIN
+    ALTER TABLE dbo.TableTypes ADD AdditionalHourRate DECIMAL(10,2) NULL;
+END
+GO
+
+UPDATE dbo.TableTypes 
+SET FirstHourRate = ISNULL(FirstHourRate, HourlyRate),
+    AdditionalHourRate = ISNULL(AdditionalHourRate, HourlyRate)
+WHERE FirstHourRate IS NULL OR AdditionalHourRate IS NULL;
 GO
 
 IF NOT EXISTS (SELECT 1 FROM dbo.TableTypes)

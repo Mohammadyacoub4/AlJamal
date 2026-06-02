@@ -47,4 +47,8 @@ public partial class HourlyRatesForm : Form
             MessageBox.Show(ex.Message, "خطأ", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
     }
+    private void BtnCancel_Click(object sender, EventArgs e)
+    {
+        Close();
+    }
 }

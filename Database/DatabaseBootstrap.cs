@@ -1,12 +1,13 @@
-using Microsoft.Data.SqlClient;
+using Microsoft.Data.Sqlite;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 
 namespace AlJamal.Database;
 
 internal static class DatabaseBootstrap
 {
-    private const string MasterConnection =
-        @"Data Source=(localdb)\MSSQLLocalDB;Initial Catalog=master;Integrated Security=True;TrustServerCertificate=True;Connect Timeout=15";
-
     public static string? LastError { get; private set; }
 
     public static bool TryInitialize(out string? errorMessage)
@@ -14,7 +15,6 @@ internal static class DatabaseBootstrap
         LastError = null;
         try
         {
-            EnsureLocalDbStarted();
             EnsureDatabaseExists();
             RunScript("MigrateSchema.sql");
             if (!SchemaIsValid())
@@ -35,52 +35,37 @@ internal static class DatabaseBootstrap
         }
     }
 
-    private static void EnsureLocalDbStarted()
-    {
-        try
-        {
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "sqllocaldb",
-                Arguments = "start MSSQLLocalDB",
-                CreateNoWindow = true,
-                UseShellExecute = false
-            };
-            using var p = System.Diagnostics.Process.Start(psi);
-            p?.WaitForExit(5000);
-        }
-        catch
-        {
-            // sqllocaldb غير موجود — نفترض أن الخادم يعمل
-        }
-    }
-
     private static void EnsureDatabaseExists()
     {
-        using var con = new SqlConnection(MasterConnection);
-        con.Open();
-        using var cmd = new SqlCommand(
-            """
-            IF DB_ID(N'BilliardDB') IS NULL
-                CREATE DATABASE BilliardDB;
-            """, con);
-        cmd.ExecuteNonQuery();
+        var dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Database", "BilliardDB.db");
+        var dir = Path.GetDirectoryName(dbPath);
+        if (dir != null && !Directory.Exists(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+        
+        // SQLite will automatically create the database file when we open the connection,
+        // but we can make sure the helper connection works.
+        using var con = DatabaseHelper.OpenConnection();
     }
 
     private static bool SchemaIsValid()
     {
-        using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(
-            """
-            SELECT CASE WHEN
-                COL_LENGTH('dbo.BilliardTables', 'DisplayName') IS NOT NULL
-                AND OBJECT_ID('dbo.PlayerSessions') IS NOT NULL
-                AND OBJECT_ID('dbo.Products') IS NOT NULL
-                AND OBJECT_ID('dbo.OrderItems') IS NOT NULL
-                AND COL_LENGTH('dbo.Invoices', 'PlayerSessionId') IS NOT NULL
-            THEN 1 ELSE 0 END
-            """, con);
-        return Convert.ToInt32(cmd.ExecuteScalar()) == 1;
+        try
+        {
+            using var con = DatabaseHelper.OpenConnection();
+            using var cmd = new SqliteCommand(
+                """
+                SELECT COUNT(*) FROM sqlite_master 
+                WHERE type='table' 
+                AND name IN ('TableTypes', 'BilliardTables', 'Products', 'PlayerSessions', 'OrderItems', 'Invoices', 'InvoiceLines')
+                """, con);
+            return Convert.ToInt32(cmd.ExecuteScalar()) == 7;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static void RunScript(string fileName)
@@ -92,15 +77,14 @@ internal static class DatabaseBootstrap
         var script = File.ReadAllText(path);
         var batches = SplitBatches(script);
 
-        using var con = new SqlConnection(MasterConnection);
-        con.Open();
+        using var con = DatabaseHelper.OpenConnection();
 
         foreach (var batch in batches)
         {
             if (string.IsNullOrWhiteSpace(batch))
                 continue;
 
-            using var cmd = new SqlCommand(batch, con) { CommandTimeout = 120 };
+            using var cmd = new SqliteCommand(batch, con);
             cmd.ExecuteNonQuery();
         }
     }

@@ -1,170 +1,109 @@
--- ترقية / إصلاح المخطط عند وجود جداول قديمة غير متوافقة
-USE BilliardDB;
-GO
+-- ============================================================
+-- AlJamal Billiard Hall - Schema Migration / Verification (SQLite version)
+-- ============================================================
 
-IF COL_LENGTH('dbo.BilliardTables', 'DisplayName') IS NULL
-BEGIN
-    IF OBJECT_ID(N'dbo.InvoiceLines', N'U') IS NOT NULL DROP TABLE dbo.InvoiceLines;
-    IF OBJECT_ID(N'dbo.OrderItems', N'U') IS NOT NULL DROP TABLE dbo.OrderItems;
-    IF OBJECT_ID(N'dbo.Invoices', N'U') IS NOT NULL DROP TABLE dbo.Invoices;
-    IF OBJECT_ID(N'dbo.PlayerSessions', N'U') IS NOT NULL DROP TABLE dbo.PlayerSessions;
-    IF OBJECT_ID(N'dbo.Orders', N'U') IS NOT NULL DROP TABLE dbo.Orders;
-    IF OBJECT_ID(N'dbo.Players', N'U') IS NOT NULL DROP TABLE dbo.Players;
-    IF OBJECT_ID(N'dbo.Sessions', N'U') IS NOT NULL DROP TABLE dbo.Sessions;
-    IF OBJECT_ID(N'dbo.Products', N'U') IS NOT NULL DROP TABLE dbo.Products;
-    IF OBJECT_ID(N'dbo.BilliardTables', N'U') IS NOT NULL DROP TABLE dbo.BilliardTables;
-END
-GO
+-- ------------------------------------------------------------
+-- 1) TableTypes
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS TableTypes (
+    TableTypeId        INTEGER PRIMARY KEY,
+    TypeName           TEXT NOT NULL,
+    HourlyRate         DECIMAL(10,2) NOT NULL,
+    FirstHourRate      DECIMAL(10,2) NULL,
+    AdditionalHourRate DECIMAL(10,2) NULL
+);
 
-USE BilliardDB;
-GO
+INSERT OR IGNORE INTO TableTypes (TableTypeId, TypeName, HourlyRate, FirstHourRate, AdditionalHourRate) VALUES
+    (1, 'Snooker', 5.00, 5.00, 5.00),
+    (2, 'Black',   4.00, 4.00, 4.00);
 
-IF OBJECT_ID(N'dbo.TableTypes', N'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.TableTypes (
-        TableTypeId        INT           NOT NULL PRIMARY KEY,
-        TypeName           NVARCHAR(50)  NOT NULL,
-        HourlyRate         DECIMAL(10,2) NOT NULL,
-        FirstHourRate      DECIMAL(10,2) NULL,
-        AdditionalHourRate DECIMAL(10,2) NULL
-    );
-END
-GO
+-- ------------------------------------------------------------
+-- 2) BilliardTables
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS BilliardTables (
+    TableId       INTEGER PRIMARY KEY AUTOINCREMENT,
+    TableNumber   INTEGER NOT NULL UNIQUE,
+    TableTypeId   INTEGER NOT NULL REFERENCES TableTypes(TableTypeId),
+    DisplayName   TEXT NOT NULL,
+    IsActive      INTEGER NOT NULL DEFAULT 1
+);
 
-IF COL_LENGTH('dbo.TableTypes', 'FirstHourRate') IS NULL
-BEGIN
-    ALTER TABLE dbo.TableTypes ADD FirstHourRate DECIMAL(10,2) NULL;
-END
-GO
+INSERT OR IGNORE INTO BilliardTables (TableId, TableNumber, TableTypeId, DisplayName) VALUES
+    (1, 1, 1, 'سنوكر 1'),
+    (2, 2, 1, 'سنوكر 2'),
+    (3, 3, 1, 'سنوكر 3'),
+    (4, 4, 1, 'سنوكر 4'),
+    (5, 5, 1, 'سنوكر 5'),
+    (6, 6, 1, 'سنوكر 6'),
+    (7, 7, 1, 'سنوكر 7'),
+    (8, 8, 2, 'بلاك 1'),
+    (9, 9, 2, 'بلاك 2'),
+    (10, 10, 2, 'بلاك 3');
 
-IF COL_LENGTH('dbo.TableTypes', 'AdditionalHourRate') IS NULL
-BEGIN
-    ALTER TABLE dbo.TableTypes ADD AdditionalHourRate DECIMAL(10,2) NULL;
-END
-GO
+-- ------------------------------------------------------------
+-- 3) Products
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS Products (
+    ProductId     INTEGER PRIMARY KEY AUTOINCREMENT,
+    ProductName   TEXT NOT NULL,
+    Category      TEXT NULL,
+    UnitPrice     DECIMAL(10,2) NOT NULL,
+    IsActive      INTEGER NOT NULL DEFAULT 1
+);
 
-UPDATE dbo.TableTypes 
-SET FirstHourRate = ISNULL(FirstHourRate, HourlyRate),
-    AdditionalHourRate = ISNULL(AdditionalHourRate, HourlyRate)
-WHERE FirstHourRate IS NULL OR AdditionalHourRate IS NULL;
-GO
+-- ------------------------------------------------------------
+-- 4) PlayerSessions
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS PlayerSessions (
+    PlayerSessionId INTEGER PRIMARY KEY AUTOINCREMENT,
+    TableId         INTEGER NOT NULL REFERENCES BilliardTables(TableId),
+    PlayerName      TEXT NULL,
+    StartTime       TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    EndTime         TEXT NULL,
+    HourlyRate      DECIMAL(10,2) NOT NULL,
+    IsActive        INTEGER NOT NULL DEFAULT 1,
+    IsInvoiced      INTEGER NOT NULL DEFAULT 0
+);
 
-IF NOT EXISTS (SELECT 1 FROM dbo.TableTypes)
-BEGIN
-    INSERT INTO dbo.TableTypes (TableTypeId, TypeName, HourlyRate, FirstHourRate, AdditionalHourRate) VALUES
-        (1, N'Snooker', 5.00, 5.00, 5.00),
-        (2, N'Black',   4.00, 4.00, 4.00);
-END
-GO
+CREATE INDEX IF NOT EXISTS IX_PlayerSessions_Table_Active
+    ON PlayerSessions (TableId, IsActive)
+    WHERE IsActive = 1;
 
-IF OBJECT_ID(N'dbo.BilliardTables', N'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.BilliardTables (
-        TableId       INT           NOT NULL PRIMARY KEY IDENTITY(1,1),
-        TableNumber   INT           NOT NULL,
-        TableTypeId   INT           NOT NULL REFERENCES dbo.TableTypes(TableTypeId),
-        DisplayName   NVARCHAR(50)  NOT NULL,
-        IsActive      BIT           NOT NULL DEFAULT 1,
-        CONSTRAINT UQ_BilliardTables_Number UNIQUE (TableNumber)
-    );
+-- ------------------------------------------------------------
+-- 5) OrderItems
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS OrderItems (
+    OrderItemId     INTEGER PRIMARY KEY AUTOINCREMENT,
+    PlayerSessionId INTEGER NOT NULL REFERENCES PlayerSessions(PlayerSessionId),
+    ProductId       INTEGER NOT NULL REFERENCES Products(ProductId),
+    Quantity        INTEGER NOT NULL DEFAULT 1,
+    UnitPrice       DECIMAL(10,2) NOT NULL,
+    AddedAt         TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
 
-    INSERT INTO dbo.BilliardTables (TableNumber, TableTypeId, DisplayName) VALUES
-        (1, 1, N'سنوكر 1'), (2, 1, N'سنوكر 2'), (3, 1, N'سنوكر 3'),
-        (4, 1, N'سنوكر 4'), (5, 1, N'سنوكر 5'), (6, 1, N'سنوكر 6'),
-        (7, 1, N'سنوكر 7'),
-        (8, 2, N'بلاك 1'), (9, 2, N'بلاك 2'), (10, 2, N'بلاك 3');
-END
-GO
+-- ------------------------------------------------------------
+-- 6) Invoices
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS Invoices (
+    InvoiceId       INTEGER PRIMARY KEY AUTOINCREMENT,
+    PlayerSessionId INTEGER NOT NULL REFERENCES PlayerSessions(PlayerSessionId),
+    PlayMinutes     INTEGER NOT NULL,
+    PlayAmount      DECIMAL(10,2) NOT NULL,
+    OrdersAmount    DECIMAL(10,2) NOT NULL,
+    TotalAmount     DECIMAL(10,2) NOT NULL,
+    CreatedAt       TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+    PrintedAt       TEXT NULL
+);
 
--- ترقية: 6 سنوكر + 3 بلاك (أرقام 7-9) → 7 سنوكر + 3 بلاك (8-10)
-IF (SELECT COUNT(*) FROM dbo.BilliardTables WHERE TableTypeId = 1) = 6
-   AND NOT EXISTS (SELECT 1 FROM dbo.BilliardTables WHERE DisplayName = N'سنوكر 7')
-BEGIN
-    IF EXISTS (SELECT 1 FROM dbo.BilliardTables WHERE TableTypeId = 2 AND TableNumber = 9)
-        UPDATE dbo.BilliardTables SET TableNumber = 10, DisplayName = N'بلاك 3' WHERE TableTypeId = 2 AND TableNumber = 9;
-    IF EXISTS (SELECT 1 FROM dbo.BilliardTables WHERE TableTypeId = 2 AND TableNumber = 8)
-        UPDATE dbo.BilliardTables SET TableNumber = 9, DisplayName = N'بلاك 2' WHERE TableTypeId = 2 AND TableNumber = 8;
-    IF EXISTS (SELECT 1 FROM dbo.BilliardTables WHERE TableTypeId = 2 AND TableNumber = 7)
-        UPDATE dbo.BilliardTables SET TableNumber = 8, DisplayName = N'بلاك 1' WHERE TableTypeId = 2 AND TableNumber = 7;
-
-    INSERT INTO dbo.BilliardTables (TableNumber, TableTypeId, DisplayName)
-    VALUES (7, 1, N'سنوكر 7');
-END
-GO
-
-IF OBJECT_ID(N'dbo.Products', N'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.Products (
-        ProductId     INT           NOT NULL PRIMARY KEY IDENTITY(1,1),
-        ProductName   NVARCHAR(100) NOT NULL,
-        Category      NVARCHAR(50)  NULL,
-        UnitPrice     DECIMAL(10,2) NOT NULL,
-        IsActive      BIT           NOT NULL DEFAULT 1
-    );
-    INSERT INTO dbo.Products (ProductName, Category, UnitPrice) VALUES
-        (N'ماء', N'مشروبات', 0.50),
-        (N'بيبسي', N'مشروبات', 1.00),
-        (N'عصير', N'مشروبات', 1.50),
-        (N'شبس', N'وجبات', 1.00),
-        (N'سندويش', N'وجبات', 2.50);
-END
-GO
-
-IF OBJECT_ID(N'dbo.PlayerSessions', N'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.PlayerSessions (
-        PlayerSessionId INT           NOT NULL PRIMARY KEY IDENTITY(1,1),
-        TableId         INT           NOT NULL REFERENCES dbo.BilliardTables(TableId),
-        PlayerName      NVARCHAR(100) NULL,
-        StartTime       DATETIME2     NOT NULL DEFAULT SYSDATETIME(),
-        EndTime         DATETIME2     NULL,
-        HourlyRate      DECIMAL(10,2) NOT NULL,
-        IsActive        BIT           NOT NULL DEFAULT 1,
-        IsInvoiced      BIT           NOT NULL DEFAULT 0
-    );
-    CREATE INDEX IX_PlayerSessions_Table_Active
-        ON dbo.PlayerSessions (TableId, IsActive) WHERE IsActive = 1;
-END
-GO
-
-IF OBJECT_ID(N'dbo.OrderItems', N'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.OrderItems (
-        OrderItemId     INT           NOT NULL PRIMARY KEY IDENTITY(1,1),
-        PlayerSessionId INT           NOT NULL REFERENCES dbo.PlayerSessions(PlayerSessionId),
-        ProductId       INT           NOT NULL REFERENCES dbo.Products(ProductId),
-        Quantity        INT           NOT NULL DEFAULT 1,
-        UnitPrice       DECIMAL(10,2) NOT NULL,
-        AddedAt         DATETIME2     NOT NULL DEFAULT SYSDATETIME()
-    );
-END
-GO
-
-IF OBJECT_ID(N'dbo.Invoices', N'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.Invoices (
-        InvoiceId       INT           NOT NULL PRIMARY KEY IDENTITY(1,1),
-        PlayerSessionId INT           NOT NULL REFERENCES dbo.PlayerSessions(PlayerSessionId),
-        PlayMinutes     INT           NOT NULL,
-        PlayAmount      DECIMAL(10,2) NOT NULL,
-        OrdersAmount    DECIMAL(10,2) NOT NULL,
-        TotalAmount     DECIMAL(10,2) NOT NULL,
-        CreatedAt       DATETIME2     NOT NULL DEFAULT SYSDATETIME(),
-        PrintedAt       DATETIME2     NULL
-    );
-END
-GO
-
-IF OBJECT_ID(N'dbo.InvoiceLines', N'U') IS NULL
-BEGIN
-    CREATE TABLE dbo.InvoiceLines (
-        InvoiceLineId INT           NOT NULL PRIMARY KEY IDENTITY(1,1),
-        InvoiceId     INT           NOT NULL REFERENCES dbo.Invoices(InvoiceId),
-        LineType      NVARCHAR(20)  NOT NULL,
-        Description   NVARCHAR(200) NOT NULL,
-        Quantity      DECIMAL(10,2) NOT NULL,
-        UnitPrice     DECIMAL(10,2) NOT NULL,
-        LineTotal     DECIMAL(10,2) NOT NULL
-    );
-END
-GO
+-- ------------------------------------------------------------
+-- 7) InvoiceLines
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS InvoiceLines (
+    InvoiceLineId INTEGER PRIMARY KEY AUTOINCREMENT,
+    InvoiceId     INTEGER NOT NULL REFERENCES Invoices(InvoiceId),
+    LineType      TEXT NOT NULL,
+    Description   TEXT NOT NULL,
+    Quantity      DECIMAL(10,2) NOT NULL,
+    UnitPrice     DECIMAL(10,2) NOT NULL,
+    LineTotal     DECIMAL(10,2) NOT NULL
+);

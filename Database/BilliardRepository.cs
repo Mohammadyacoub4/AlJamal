@@ -1,5 +1,8 @@
 using AlJamal.Models;
-using Microsoft.Data.SqlClient;
+using Microsoft.Data.Sqlite;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace AlJamal.Database;
 
@@ -20,7 +23,7 @@ internal static class BilliardRepository
 
         var list = new List<BilliardTableInfo>();
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(sql, con);
+        using var cmd = new SqliteCommand(sql, con);
         using var r = cmd.ExecuteReader();
         while (r.Read())
         {
@@ -58,7 +61,7 @@ internal static class BilliardRepository
             ORDER BY ps.StartTime
             """;
 
-        return ReadPlayerSessions(sql, new SqlParameter("@TableId", tableId));
+        return ReadPlayerSessions(sql, new SqliteParameter("@TableId", tableId));
     }
 
     public static PlayerSessionInfo? GetPlayerSession(int playerSessionId)
@@ -73,32 +76,32 @@ internal static class BilliardRepository
             WHERE ps.PlayerSessionId = @Id
             """;
 
-        var list = ReadPlayerSessions(sql, new SqlParameter("@Id", playerSessionId));
+        var list = ReadPlayerSessions(sql, new SqliteParameter("@Id", playerSessionId));
         return list.FirstOrDefault();
     }
 
     public static int AddPlayer(int tableId, string? playerName)
     {
         using var con = DatabaseHelper.OpenConnection();
-        using var rateCmd = new SqlCommand(
+        using var rateCmd = new SqliteCommand(
             """
             SELECT tt.HourlyRate FROM BilliardTables t
             INNER JOIN TableTypes tt ON t.TableTypeId = tt.TableTypeId
             WHERE t.TableId = @TableId
             """, con);
         rateCmd.Parameters.AddWithValue("@TableId", tableId);
-        var rate = (decimal)rateCmd.ExecuteScalar()!;
+        var rate = Convert.ToDecimal(rateCmd.ExecuteScalar()!);
 
-        using var cmd = new SqlCommand(
+        using var cmd = new SqliteCommand(
             """
             INSERT INTO PlayerSessions (TableId, PlayerName, StartTime, HourlyRate, IsActive, IsInvoiced)
-            OUTPUT INSERTED.PlayerSessionId
-            VALUES (@TableId, @PlayerName, SYSDATETIME(), @HourlyRate, 1, 0)
+            VALUES (@TableId, @PlayerName, datetime('now', 'localtime'), @HourlyRate, 1, 0);
+            SELECT last_insert_rowid();
             """, con);
         cmd.Parameters.AddWithValue("@TableId", tableId);
         cmd.Parameters.AddWithValue("@PlayerName", (object?)playerName ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@HourlyRate", rate);
-        return (int)cmd.ExecuteScalar()!;
+        return Convert.ToInt32(cmd.ExecuteScalar()!);
     }
 
     public static List<ProductInfo> GetProducts()
@@ -110,7 +113,7 @@ internal static class BilliardRepository
 
         var list = new List<ProductInfo>();
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(sql, con);
+        using var cmd = new SqliteCommand(sql, con);
         using var r = cmd.ExecuteReader();
         while (r.Read())
         {
@@ -129,15 +132,15 @@ internal static class BilliardRepository
     public static void AddOrderItem(int playerSessionId, int productId, int quantity)
     {
         using var con = DatabaseHelper.OpenConnection();
-        using var priceCmd = new SqlCommand(
+        using var priceCmd = new SqliteCommand(
             "SELECT UnitPrice FROM Products WHERE ProductId = @ProductId", con);
         priceCmd.Parameters.AddWithValue("@ProductId", productId);
-        var unitPrice = (decimal)priceCmd.ExecuteScalar()!;
+        var unitPrice = Convert.ToDecimal(priceCmd.ExecuteScalar()!);
 
-        using var cmd = new SqlCommand(
+        using var cmd = new SqliteCommand(
             """
             INSERT INTO OrderItems (PlayerSessionId, ProductId, Quantity, UnitPrice, AddedAt)
-            VALUES (@SessionId, @ProductId, @Qty, @UnitPrice, SYSDATETIME())
+            VALUES (@SessionId, @ProductId, @Qty, @UnitPrice, datetime('now', 'localtime'))
             """, con);
         cmd.Parameters.AddWithValue("@SessionId", playerSessionId);
         cmd.Parameters.AddWithValue("@ProductId", productId);
@@ -158,7 +161,7 @@ internal static class BilliardRepository
 
         var list = new List<OrderItemInfo>();
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(sql, con);
+        using var cmd = new SqliteCommand(sql, con);
         cmd.Parameters.AddWithValue("@SessionId", playerSessionId);
         using var r = cmd.ExecuteReader();
         while (r.Read())
@@ -179,13 +182,13 @@ internal static class BilliardRepository
     public static decimal GetOrdersTotal(int playerSessionId)
     {
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(
+        using var cmd = new SqliteCommand(
             """
-            SELECT ISNULL(SUM(Quantity * UnitPrice), 0)
+            SELECT COALESCE(SUM(Quantity * UnitPrice), 0)
             FROM OrderItems WHERE PlayerSessionId = @SessionId
             """, con);
         cmd.Parameters.AddWithValue("@SessionId", playerSessionId);
-        return (decimal)cmd.ExecuteScalar()!;
+        return Convert.ToDecimal(cmd.ExecuteScalar()!);
     }
 
     public static InvoiceDraft BuildInvoiceDraft(int playerSessionId)
@@ -255,7 +258,7 @@ internal static class BilliardRepository
 
         try
         {
-            using (var endCmd = new SqlCommand(
+            using (var endCmd = new SqliteCommand(
                 """
                 UPDATE PlayerSessions
                 SET EndTime = @EndTime, IsActive = 0, IsInvoiced = 1
@@ -269,11 +272,11 @@ internal static class BilliardRepository
             }
 
             int invoiceId;
-            using (var invCmd = new SqlCommand(
+            using (var invCmd = new SqliteCommand(
                 """
                 INSERT INTO Invoices (PlayerSessionId, PlayMinutes, PlayAmount, OrdersAmount, TotalAmount, CreatedAt)
-                OUTPUT INSERTED.InvoiceId
-                VALUES (@SessionId, @PlayMin, @PlayAmt, @OrdAmt, @Total, SYSDATETIME())
+                VALUES (@SessionId, @PlayMin, @PlayAmt, @OrdAmt, @Total, datetime('now', 'localtime'));
+                SELECT last_insert_rowid();
                 """, con, tx))
             {
                 invCmd.Parameters.AddWithValue("@SessionId", draft.PlayerSessionId);
@@ -281,12 +284,12 @@ internal static class BilliardRepository
                 invCmd.Parameters.AddWithValue("@PlayAmt", draft.PlayAmount);
                 invCmd.Parameters.AddWithValue("@OrdAmt", draft.OrdersAmount);
                 invCmd.Parameters.AddWithValue("@Total", draft.TotalAmount);
-                invoiceId = (int)invCmd.ExecuteScalar()!;
+                invoiceId = Convert.ToInt32(invCmd.ExecuteScalar());
             }
 
             foreach (var line in draft.Lines)
             {
-                using var lineCmd = new SqlCommand(
+                using var lineCmd = new SqliteCommand(
                     """
                     INSERT INTO InvoiceLines (InvoiceId, LineType, Description, Quantity, UnitPrice, LineTotal)
                     VALUES (@InvoiceId, @LineType, @Desc, @Qty, @UnitPrice, @LineTotal)
@@ -313,8 +316,8 @@ internal static class BilliardRepository
     public static void MarkInvoicePrinted(int invoiceId)
     {
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(
-            "UPDATE Invoices SET PrintedAt = SYSDATETIME() WHERE InvoiceId = @Id", con);
+        using var cmd = new SqliteCommand(
+            "UPDATE Invoices SET PrintedAt = datetime('now', 'localtime') WHERE InvoiceId = @Id", con);
         cmd.Parameters.AddWithValue("@Id", invoiceId);
         cmd.ExecuteNonQuery();
     }
@@ -334,9 +337,9 @@ internal static class BilliardRepository
 
         var list = new List<InvoiceSummary>();
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(sql, con);
-        cmd.Parameters.AddWithValue("@From", from.Date);
-        cmd.Parameters.AddWithValue("@ToEnd", to.Date.AddDays(1));
+        using var cmd = new SqliteCommand(sql, con);
+        cmd.Parameters.AddWithValue("@From", from.Date.ToString("yyyy-MM-dd HH:mm:ss"));
+        cmd.Parameters.AddWithValue("@ToEnd", to.Date.AddDays(1).ToString("yyyy-MM-dd HH:mm:ss"));
         using var r = cmd.ExecuteReader();
         while (r.Read())
         {
@@ -360,11 +363,11 @@ internal static class BilliardRepository
     public static InvoiceDraft LoadInvoiceForReprint(int invoiceId)
     {
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(
+        using var cmd = new SqliteCommand(
             """
             SELECT i.PlayerSessionId, ps.PlayerName, bt.DisplayName,
                    i.PlayMinutes, i.PlayAmount, i.OrdersAmount,
-                   ps.StartTime, ISNULL(ps.EndTime, i.CreatedAt)
+                   ps.StartTime, COALESCE(ps.EndTime, i.CreatedAt)
             FROM Invoices i
             INNER JOIN PlayerSessions ps ON i.PlayerSessionId = ps.PlayerSessionId
             INNER JOIN BilliardTables bt ON ps.TableId = bt.TableId
@@ -390,7 +393,7 @@ internal static class BilliardRepository
         r.Close();
 
         var lines = new List<InvoiceLineDraft>();
-        using var lineCmd = new SqlCommand(
+        using var lineCmd = new SqliteCommand(
             """
             SELECT LineType, Description, Quantity, UnitPrice, LineTotal
             FROM InvoiceLines WHERE InvoiceId = @Id ORDER BY InvoiceLineId
@@ -412,11 +415,11 @@ internal static class BilliardRepository
         return draft;
     }
 
-    private static List<PlayerSessionInfo> ReadPlayerSessions(string sql, params SqlParameter[] parameters)
+    private static List<PlayerSessionInfo> ReadPlayerSessions(string sql, params SqliteParameter[] parameters)
     {
         var list = new List<PlayerSessionInfo>();
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(sql, con);
+        using var cmd = new SqliteCommand(sql, con);
         cmd.Parameters.AddRange(parameters);
         using var r = cmd.ExecuteReader();
         while (r.Read())
@@ -439,11 +442,6 @@ internal static class BilliardRepository
         return list;
     }
 
-    /// <summary>
-    /// حساب رسوم اللعب مع نموذج التسعير الديناميكي:
-    /// الساعة الأولى: FirstHourRate
-    /// الساعات الإضافية: AdditionalHourRate
-    /// </summary>
     public static (int PlayMinutes, decimal PlayHours, decimal PlayAmount) CalculatePlayCharge(
         TimeSpan elapsed, decimal firstHourRate, decimal additionalHourRate)
     {
@@ -474,7 +472,7 @@ internal static class BilliardRepository
     public static void DeleteOrderItem(int orderItemId, int playerSessionId)
     {
         using var con = DatabaseHelper.OpenConnection();
-        using var check = new SqlCommand(
+        using var check = new SqliteCommand(
             """
             SELECT IsInvoiced FROM PlayerSessions
             WHERE PlayerSessionId = @SessionId AND IsActive = 1
@@ -483,10 +481,10 @@ internal static class BilliardRepository
         var invoiced = check.ExecuteScalar();
         if (invoiced is null)
             throw new InvalidOperationException("جلسة اللاعب غير موجودة أو منتهية.");
-        if ((bool)invoiced)
+        if (Convert.ToBoolean(invoiced))
             throw new InvalidOperationException("لا يمكن حذف طلبات بعد إصدار الفاتورة.");
 
-        using var cmd = new SqlCommand(
+        using var cmd = new SqliteCommand(
             """
             DELETE FROM OrderItems
             WHERE OrderItemId = @OrderItemId AND PlayerSessionId = @SessionId
@@ -505,7 +503,7 @@ internal static class BilliardRepository
 
         var list = new List<TableTypeInfo>();
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(sql, con);
+        using var cmd = new SqliteCommand(sql, con);
         using var r = cmd.ExecuteReader();
         while (r.Read())
         {
@@ -529,7 +527,7 @@ internal static class BilliardRepository
             throw new ArgumentException("سعر الساعة يجب أن يكون أكبر من صفر.");
 
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(
+        using var cmd = new SqliteCommand(
             "UPDATE TableTypes SET HourlyRate = @Rate WHERE TableTypeId = @Id", con);
         cmd.Parameters.AddWithValue("@Rate", hourlyRate);
         cmd.Parameters.AddWithValue("@Id", tableTypeId);
@@ -543,7 +541,7 @@ internal static class BilliardRepository
             throw new ArgumentException("الأسعار يجب أن تكون أكبر من صفر.");
 
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(
+        using var cmd = new SqliteCommand(
             """
             UPDATE TableTypes 
             SET FirstHourRate = @FirstHour, AdditionalHourRate = @AddHour, HourlyRate = @FirstHour
@@ -565,7 +563,7 @@ internal static class BilliardRepository
 
         var list = new List<ProductInfo>();
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(sql, con);
+        using var cmd = new SqliteCommand(sql, con);
         using var r = cmd.ExecuteReader();
         while (r.Read())
         {
@@ -589,16 +587,16 @@ internal static class BilliardRepository
             throw new ArgumentException("السعر لا يمكن أن يكون سالباً.");
 
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(
+        using var cmd = new SqliteCommand(
             """
             INSERT INTO Products (ProductName, Category, UnitPrice, IsActive)
-            OUTPUT INSERTED.ProductId
-            VALUES (@Name, @Category, @Price, 1)
+            VALUES (@Name, @Category, @Price, 1);
+            SELECT last_insert_rowid();
             """, con);
         cmd.Parameters.AddWithValue("@Name", name.Trim());
         cmd.Parameters.AddWithValue("@Category", (object?)category?.Trim() ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@Price", unitPrice);
-        return (int)cmd.ExecuteScalar()!;
+        return Convert.ToInt32(cmd.ExecuteScalar());
     }
 
     public static void UpdateProduct(int productId, string name, string? category, decimal unitPrice, bool isActive)
@@ -607,7 +605,7 @@ internal static class BilliardRepository
             throw new ArgumentException("اسم المنتج مطلوب.");
 
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(
+        using var cmd = new SqliteCommand(
             """
             UPDATE Products
             SET ProductName = @Name, Category = @Category, UnitPrice = @Price, IsActive = @Active
@@ -625,7 +623,7 @@ internal static class BilliardRepository
     public static void DeleteProduct(int productId)
     {
         using var con = DatabaseHelper.OpenConnection();
-        using var cmd = new SqlCommand(
+        using var cmd = new SqliteCommand(
             "DELETE FROM Products WHERE ProductId = @Id", con);
         cmd.Parameters.AddWithValue("@Id", productId);
         if (cmd.ExecuteNonQuery() == 0)
@@ -639,10 +637,10 @@ internal static class BilliardRepository
 
         try
         {
-            using (var cmd = new SqlCommand("DELETE FROM OrderItems", con, tx))
+            using (var cmd = new SqliteCommand("DELETE FROM OrderItems", con, tx))
                 cmd.ExecuteNonQuery();
 
-            using (var cmd = new SqlCommand("DELETE FROM Products", con, tx))
+            using (var cmd = new SqliteCommand("DELETE FROM Products", con, tx))
                 cmd.ExecuteNonQuery();
 
             tx.Commit();
@@ -745,7 +743,7 @@ internal static class BilliardRepository
         {
             foreach (var playerDetail in draft.Players)
             {
-                using (var endCmd = new SqlCommand(
+                using (var endCmd = new SqliteCommand(
                     """
                     UPDATE PlayerSessions
                     SET EndTime = @EndTime, IsActive = 0, IsInvoiced = 1
@@ -758,11 +756,11 @@ internal static class BilliardRepository
                         throw new InvalidOperationException($"تعذر إغلاق جلسة {playerDetail.PlayerLabel}.");
                 }
 
-                using (var invCmd = new SqlCommand(
+                using (var invCmd = new SqliteCommand(
                     """
                     INSERT INTO Invoices (PlayerSessionId, PlayMinutes, PlayAmount, OrdersAmount, TotalAmount, CreatedAt)
-                    OUTPUT INSERTED.InvoiceId
-                    VALUES (@SessionId, @PlayMin, @PlayAmt, @OrdAmt, @Total, SYSDATETIME())
+                    VALUES (@SessionId, @PlayMin, @PlayAmt, @OrdAmt, @Total, datetime('now', 'localtime'));
+                    SELECT last_insert_rowid();
                     """, con, tx))
                 {
                     invCmd.Parameters.AddWithValue("@SessionId", playerDetail.PlayerSessionId);
@@ -770,9 +768,9 @@ internal static class BilliardRepository
                     invCmd.Parameters.AddWithValue("@PlayAmt", playerDetail.PlayAmount);
                     invCmd.Parameters.AddWithValue("@OrdAmt", playerDetail.OrdersAmount);
                     invCmd.Parameters.AddWithValue("@Total", playerDetail.PlayerTotal);
-                    var invoiceId = (int)invCmd.ExecuteScalar()!;
+                    var invoiceId = Convert.ToInt32(invCmd.ExecuteScalar());
 
-                    using (var timeCmd = new SqlCommand(
+                    using (var timeCmd = new SqliteCommand(
                         """
                         INSERT INTO InvoiceLines (InvoiceId, LineType, Description, Quantity, UnitPrice, LineTotal)
                         VALUES (@InvoiceId, @LineType, @Desc, @Qty, @UnitPrice, @LineTotal)
@@ -790,7 +788,7 @@ internal static class BilliardRepository
                     foreach (var g in playerDetail.Orders.GroupBy(o => new { o.ProductId, o.ProductName, o.UnitPrice }))
                     {
                         var qty = g.Sum(x => x.Quantity);
-                        using (var prodCmd = new SqlCommand(
+                        using (var prodCmd = new SqliteCommand(
                             """
                             INSERT INTO InvoiceLines (InvoiceId, LineType, Description, Quantity, UnitPrice, LineTotal)
                             VALUES (@InvoiceId, @LineType, @Desc, @Qty, @UnitPrice, @LineTotal)

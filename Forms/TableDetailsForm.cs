@@ -1,7 +1,5 @@
 using AlJamal.Database;
 using AlJamal.Models;
-using AlJamal.Services;
-using System.Drawing.Printing;
 
 namespace AlJamal.Forms;
 
@@ -74,7 +72,7 @@ public partial class TableDetailsForm : Form
         }
 
         var result = MessageBox.Show(
-            $"هل تريد إنهاء الجلسة للاعبين {_players.Count} على الطاولة وطباعة فاتورة موحدة؟",
+            $"هل تريد إنهاء الجلسة للاعبين {_players.Count} على الطاولة وإصدار فاتورة موحدة؟",
             "تأكيد الإنهاء",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question);
@@ -86,48 +84,15 @@ public partial class TableDetailsForm : Form
         {
             var draft = BilliardRepository.BuildTableInvoiceDraft(_tableId);
             BilliardRepository.SaveTableInvoice(draft);
-
-            var receiptText = TableInvoicePrintHelper.FormatReceipt(draft);
-            PrintReceipt(receiptText);
             RefreshPlayers();
-            MessageBox.Show("تم إنهاء جلسة الطاولة بنجاح.", "نجاح", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+            using var invoiceForm = new TableInvoiceForm(draft);
+            invoiceForm.ShowDialog(this);
         }
         catch (Exception ex)
         {
             MessageBox.Show(ex.Message, "خطأ", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
-    }
-
-    private void PrintReceipt(string receiptText)
-    {
-        using var doc = new PrintDocument();
-        doc.DocumentName = $"فاتورة {AppSettings.ShopName}";
-        var lines = receiptText.Split(Environment.NewLine);
-        var lineIndex = 0;
-
-        doc.PrintPage += (_, ev) =>
-        {
-            var font = new Font("Arial", 9);
-            float y = ev.MarginBounds.Top;
-            var lineHeight = font.GetHeight(ev.Graphics!) + 2;
-
-            while (lineIndex < lines.Length && y + lineHeight < ev.MarginBounds.Bottom)
-            {
-                ev.Graphics!.DrawString(lines[lineIndex], font, Brushes.Black, ev.MarginBounds.Left, y);
-                y += lineHeight;
-                lineIndex++;
-            }
-
-            ev.HasMorePages = lineIndex < lines.Length;
-        };
-
-        using var preview = new PrintPreviewDialog
-        {
-            Document = doc,
-            Width = 500,
-            Height = 700
-        };
-        preview.ShowDialog(this);
     }
 
     private void BtnClose_Click(object sender, EventArgs e) => Close();

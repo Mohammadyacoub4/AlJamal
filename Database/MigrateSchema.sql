@@ -15,7 +15,10 @@ CREATE TABLE IF NOT EXISTS TableTypes (
 
 INSERT OR IGNORE INTO TableTypes (TableTypeId, TypeName, HourlyRate, FirstHourRate, AdditionalHourRate) VALUES
     (1, 'Snooker', 5.00, 5.00, 5.00),
-    (2, 'Black',   4.00, 4.00, 4.00);
+    (2, 'Black',   4.00, 4.00, 4.00),
+    (3, 'Snooker7', 5.00, 5.00, 5.00);
+
+UPDATE BilliardTables SET TableTypeId = 3 WHERE TableNumber = 7;
 
 -- ------------------------------------------------------------
 -- 2) BilliardTables
@@ -35,7 +38,7 @@ INSERT OR IGNORE INTO BilliardTables (TableId, TableNumber, TableTypeId, Display
     (4, 4, 1, 'سنوكر 4'),
     (5, 5, 1, 'سنوكر 5'),
     (6, 6, 1, 'سنوكر 6'),
-    (7, 7, 1, 'سنوكر 7'),
+    (7, 7, 3, 'سنوكر 7'),
     (8, 8, 2, 'بلاك 1'),
     (9, 9, 2, 'بلاك 2'),
     (10, 10, 2, 'بلاك 3');

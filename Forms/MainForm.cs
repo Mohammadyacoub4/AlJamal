@@ -55,8 +55,8 @@ public partial class MainForm : Form
         try
         {
             var tables = BilliardRepository.GetTables();
-            var snooker = tables.Where(t => t.TableTypeId == 1).ToList();
-            var black = tables.Where(t => t.TableTypeId != 1).ToList();
+            var snooker = tables.Where(t => t.TableTypeId == 1 || t.TableTypeId == 3).ToList();
+            var black = tables.Where(t => t.TableTypeId == 2).ToList();
 
             PopulateTablePanel(tlpSnooker, snooker, SnookerColumns);
             PopulateTablePanel(tlpBlack, black, BlackColumns);
@@ -111,7 +111,7 @@ public partial class MainForm : Form
 
     private Button CreateTableButton(BilliardTableInfo table)
     {
-        var isSnooker = table.TableTypeId == 1;
+        var isSnooker = table.TableTypeId == 1 || table.TableTypeId == 3;
         var busy = table.IsBusy;
         var freeColor = isSnooker ? FreeSnooker : FreeBlack;
         var busyColor = isSnooker ? BusySnooker : BusyBlack;

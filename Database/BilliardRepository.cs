@@ -512,7 +512,12 @@ internal static class BilliardRepository
             {
                 TableTypeId = r.GetInt32(0),
                 TypeName = typeName,
-                DisplayNameAr = typeName.Equals("Snooker", StringComparison.OrdinalIgnoreCase) ? "سنوكر" : "بلاك",
+                DisplayNameAr = typeName switch
+                {
+                    "Snooker" => "سنوكر",
+                    "Snooker7" => "سنوكر 7",
+                    _ => "بلاك"
+                },
                 HourlyRate = r.GetDecimal(2),
                 FirstHourRate = r.GetDecimal(3),
                 AdditionalHourRate = r.GetDecimal(4)

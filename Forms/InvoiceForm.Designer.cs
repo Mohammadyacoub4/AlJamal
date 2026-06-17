@@ -44,7 +44,7 @@ partial class InvoiceForm
         // 
         btnSave.BackColor = Color.FromArgb(76, 175, 80);
         btnSave.ForeColor = Color.White;
-        btnSave.Location = new Point(142, 405);
+        btnSave.Location = new Point(136, 405);
         btnSave.Name = "btnSave";
         btnSave.Size = new Size(120, 32);
         btnSave.TabIndex = 2;

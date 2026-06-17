@@ -4,6 +4,9 @@
     <_LastSelectedProfileId>D:\AlJamal\ALJamal\Properties\PublishProfiles\FolderProfile5.pubxml</_LastSelectedProfileId>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Update="Controls\TableCardPanel.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Update="Forms\HourlyRatesForm.cs">
       <SubType>Form</SubType>
     </Compile>

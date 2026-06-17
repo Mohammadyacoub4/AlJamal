@@ -1,3 +1,4 @@
+using AlJamal.Controls;
 using AlJamal.Database;
 using AlJamal.Models;
 
@@ -5,26 +6,75 @@ namespace AlJamal.Forms;
 
 public partial class MainForm : Form
 {
-    private static readonly Color FreeSnooker = Color.FromArgb(56, 142, 60);
-    private static readonly Color BusySnooker = Color.FromArgb(183, 28, 28);
-    private static readonly Color FreeBlack = Color.FromArgb(30, 136, 229);
-    private static readonly Color BusyBlack = Color.FromArgb(198, 40, 40);
+    private static readonly Color FreeSnooker = Color.FromArgb(45, 106, 79);
+    private static readonly Color BusySnooker = Color.FromArgb(193, 18, 31);
+    private static readonly Color FreeBlack = Color.FromArgb(29, 78, 137);
+    private static readonly Color BusyBlack = Color.FromArgb(214, 40, 57);
 
     private const int SnookerColumns = 4;
     private const int BlackColumns = 3;
-    private const int ButtonRowHeight = 96;
+    private const int CardRowHeight = 124;
+    private const string LogoFileName = "photo_2026-05-31_17-03-52.ico";
 
     public MainForm()
     {
         InitializeComponent();
-        lblTitle.Text = AppSettings.AppTitle;
+        lblTitle.Text = AppSettings.ShopName;
+        lblSubtitle.Text = "إدارة الطاولات واللاعبين";
         Text = AppSettings.AppTitle;
     }
 
     private void MainForm_Load(object? sender, EventArgs e)
     {
+        LoadLogo();
+        panelHeader.Paint += PanelHeader_Paint;
         LoadTables();
         tmrRefresh.Start();
+    }
+
+    private void LoadLogo()
+    {
+        var candidates = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, LogoFileName),
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", LogoFileName))
+        };
+
+        foreach (var path in candidates)
+        {
+            if (!File.Exists(path))
+                continue;
+
+            try
+            {
+                using var icon = new Icon(path, 72, 72);
+                picLogo.Image = icon.ToBitmap();
+                return;
+            }
+            catch
+            {
+                // try next path
+            }
+        }
+
+        picLogo.Visible = false;
+    }
+
+    private void PanelHeader_Paint(object? sender, PaintEventArgs e)
+    {
+        var rect = panelHeader.ClientRectangle;
+        if (rect.Width <= 0 || rect.Height <= 0)
+            return;
+
+        using var brush = new System.Drawing.Drawing2D.LinearGradientBrush(
+            rect,
+            Color.FromArgb(255, 27, 38, 59),
+            Color.FromArgb(255, 13, 27, 42),
+            System.Drawing.Drawing2D.LinearGradientMode.Horizontal);
+        e.Graphics.FillRectangle(brush, rect);
+
+        using var accentPen = new Pen(Color.FromArgb(120, 212, 175, 55), 3);
+        e.Graphics.DrawLine(accentPen, 0, rect.Bottom - 1, rect.Width, rect.Bottom - 1);
     }
 
     private void TmrRefresh_Tick(object? sender, EventArgs e) => LoadTables();
@@ -58,8 +108,14 @@ public partial class MainForm : Form
             var snooker = tables.Where(t => t.TableTypeId == 1 || t.TableTypeId == 3).ToList();
             var black = tables.Where(t => t.TableTypeId == 2).ToList();
 
-            PopulateTablePanel(tlpSnooker, snooker, SnookerColumns);
-            PopulateTablePanel(tlpBlack, black, BlackColumns);
+            lblSnookerCount.Text = snooker.Count.ToString();
+            lblBlackCount.Text = black.Count.ToString();
+
+            PopulateTablePanel(tlpSnooker, snooker, SnookerColumns, FreeSnooker, BusySnooker);
+            PopulateTablePanel(tlpBlack, black, BlackColumns, FreeBlack, BusyBlack);
+
+            ResizeSectionPanel(panelSnookerSection, tlpSnooker, snookerHeader);
+            ResizeSectionPanel(panelBlackSection, tlpBlack, blackHeader);
         }
         catch (Exception ex)
         {
@@ -72,7 +128,12 @@ public partial class MainForm : Form
         }
     }
 
-    private void PopulateTablePanel(TableLayoutPanel panel, List<BilliardTableInfo> tables, int columns)
+    private void PopulateTablePanel(
+        TableLayoutPanel panel,
+        List<BilliardTableInfo> tables,
+        int columns,
+        Color freeColor,
+        Color busyColor)
     {
         panel.SuspendLayout();
         panel.Controls.Clear();
@@ -81,6 +142,7 @@ public partial class MainForm : Form
 
         if (tables.Count == 0)
         {
+            panel.Height = 0;
             panel.ResumeLayout();
             return;
         }
@@ -94,53 +156,45 @@ public partial class MainForm : Form
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, colPercent));
 
         for (var r = 0; r < rows; r++)
-            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, ButtonRowHeight));
+            panel.RowStyles.Add(new RowStyle(SizeType.Absolute, CardRowHeight));
 
-        panel.Height = rows * ButtonRowHeight + panel.Padding.Vertical + 4;
+        panel.Height = rows * CardRowHeight + panel.Padding.Vertical + 8;
 
         for (var i = 0; i < tables.Count; i++)
         {
-            var btn = CreateTableButton(tables[i]);
-            btn.Dock = DockStyle.Fill;
-            btn.Margin = new Padding(5);
-            panel.Controls.Add(btn, i % columns, i / columns);
+            var card = CreateTableCard(tables[i], freeColor, busyColor);
+            card.Dock = DockStyle.Fill;
+            panel.Controls.Add(card, i % columns, i / columns);
         }
 
         panel.ResumeLayout(true);
     }
 
-    private Button CreateTableButton(BilliardTableInfo table)
+    private static void ResizeSectionPanel(Panel section, TableLayoutPanel tablePanel, Panel header)
     {
-        var isSnooker = table.TableTypeId == 1 || table.TableTypeId == 3;
-        var busy = table.IsBusy;
-        var freeColor = isSnooker ? FreeSnooker : FreeBlack;
-        var busyColor = isSnooker ? BusySnooker : BusyBlack;
-
-        var status = busy ? $"{table.ActivePlayers} لاعب" : "فاضية";
-        var btn = new Button
-        {
-            Tag = table.TableId,
-            Text = $"{table.DisplayName}\n{table.HourlyRate:N0} د.أ/س\n{status}",
-            BackColor = busy ? busyColor : freeColor,
-            ForeColor = Color.White,
-            FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 9F, FontStyle.Bold),
-            Cursor = Cursors.Hand,
-            TextAlign = ContentAlignment.MiddleCenter,
-            UseCompatibleTextRendering = true,
-            MinimumSize = new Size(80, 80)
-        };
-        btn.FlatAppearance.BorderSize = 0;
-        btn.FlatAppearance.MouseOverBackColor = ControlPaint.Light(busy ? busyColor : freeColor, 0.12f);
-        btn.Click += TableButton_Click;
-        return btn;
+        section.Height = section.Padding.Vertical + header.Height + tablePanel.Height + 8;
     }
 
-    private void TableButton_Click(object? sender, EventArgs e)
+    private TableCardPanel CreateTableCard(BilliardTableInfo table, Color freeColor, Color busyColor)
     {
-        if (sender is not Button btn || btn.Tag is not int tableId)
-            return;
+        var busy = table.IsBusy;
+        var status = busy ? $"{table.ActivePlayers} لاعب" : "فاضية";
 
+        var card = new TableCardPanel(freeColor, busyColor)
+        {
+            TableId = table.TableId,
+            TableName = table.DisplayName,
+            RateText = $"{table.HourlyRate:N0} د.أ / ساعة",
+            StatusText = status,
+            IsBusy = busy
+        };
+
+        card.CardClicked += (_, _) => OpenTableDetails(card.TableId);
+        return card;
+    }
+
+    private void OpenTableDetails(int tableId)
+    {
         using var f = new TableDetailsForm(tableId);
         f.ShowDialog(this);
         LoadTables();
